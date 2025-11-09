@@ -1,0 +1,5 @@
+{
+  "name": "Catan Studio",
+  "description": "An AI-powered image generation studio. Create stunning visuals from text prompts and optional base images, powered by Google Gemini.",
+  "requestFramePermissions": []
+}
