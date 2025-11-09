@@ -2,9 +2,6 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { generateImages } from './services/geminiService';
 import { SparklesIcon, ChatIcon, PlusIcon, XIcon, LoaderIcon, PhotographIcon, DownloadIcon, ExpandIcon } from './components/icons';
 
-// FIX: Removed subsequent property declaration for `window.aistudio` to resolve a type conflict.
-// A global type definition is assumed to exist.
-
 const MAX_IMAGES = 4;
 
 interface UrlInputBoxProps {
@@ -139,38 +136,6 @@ const ImageModal: React.FC<ImageModalProps> = ({ imageUrl, onClose, onDownload, 
     );
 };
 
-const ApiKeySelectionScreen: React.FC<{ onSelectKey: () => void, error?: string | null }> = ({ onSelectKey, error }) => (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 text-center">
-        <div className="max-w-md">
-            <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600 mb-4">
-                Bienvenido a Catan Studio
-            </h1>
-            <p className="text-slate-400 mb-8">
-                Para comenzar a generar imágenes, por favor selecciona un proyecto con la API de Gemini habilitada.
-            </p>
-             {error && (
-                <div className="mb-4 bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg text-sm">
-                    {error}
-                </div>
-            )}
-            <button
-                onClick={onSelectKey}
-                className="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105"
-            >
-                <SparklesIcon className="w-5 h-5"/>
-                Seleccionar Clave de API
-            </button>
-            <p className="text-xs text-slate-500 mt-4">
-                Se pueden aplicar cargos. Para más información, consulta la{' '}
-                <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-cyan-400">
-                    documentación de facturación
-                </a>.
-            </p>
-        </div>
-    </div>
-);
-
-
 const App: React.FC = () => {
   const [prompt, setPrompt] = useState<string>('');
   const [numImages, setNumImages] = useState<number>(4);
@@ -179,35 +144,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [apiKeyReady, setApiKeyReady] = useState<boolean | null>(null);
-  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
-
-
-  useEffect(() => {
-    // Check for API key status on initial load, ensuring aistudio is available.
-    if (window.aistudio) {
-        window.aistudio.hasSelectedApiKey().then(hasKey => {
-            setApiKeyReady(hasKey);
-        });
-    } else {
-        // If the aistudio object isn't available, we can't proceed with key selection.
-        console.warn('aistudio environment not detected. API key selection will not be available.');
-        setApiKeyReady(false); // Default to showing the selection screen with a potential error.
-        setApiKeyError("El entorno de selección de clave de API no está disponible.");
-    }
-  }, []);
-
-  const handleSelectKey = async () => {
-    setApiKeyError(null);
-    if (window.aistudio) {
-        // Open the key selection dialog and optimistically set the app to ready
-        await window.aistudio.openSelectKey();
-        setApiKeyReady(true);
-    } else {
-        setApiKeyError("La selección de clave de API no está disponible en este entorno.");
-    }
-  };
-
+  
   const handleUrlChange = (index: number, value: string) => {
     const newUrls = [...baseImageUrls];
     newUrls[index] = value;
@@ -257,12 +194,7 @@ const App: React.FC = () => {
       setGeneratedImages(images);
     } catch (e) {
       if (e instanceof Error) {
-        if (e.message === 'INVALID_API_KEY') {
-            setApiKeyError('La clave de API no es válida o no tiene los permisos necesarios. Por favor, selecciona una nueva.');
-            setApiKeyReady(false); // Reset to show the key selection screen
-        } else {
-            setError(e.message);
-        }
+        setError(e.message);
       } else {
         setError('Ocurrió un error desconocido.');
       }
@@ -271,21 +203,6 @@ const App: React.FC = () => {
     }
   }, [prompt, numImages, baseImageUrls, isLoading]);
 
-  // Render loading state while checking for API key
-  if (apiKeyReady === null) {
-    return (
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-            <LoaderIcon className="w-12 h-12 text-cyan-500 animate-spin" />
-        </div>
-    );
-  }
-
-  // Render API key selection screen if not ready
-  if (!apiKeyReady) {
-    return <ApiKeySelectionScreen onSelectKey={handleSelectKey} error={apiKeyError} />;
-  }
-
-  // Render the main application
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans p-4 sm:p-6 lg:p-8 relative overflow-hidden">
         <div className="absolute top-0 left-0 right-0 h-[40vh] bg-gradient-to-b from-cyan-500/20 to-transparent -z-0 pointer-events-none" />

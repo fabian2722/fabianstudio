@@ -81,28 +81,22 @@ export async function generateImages(
                 }
             }
             
-            try {
-                const response = await ai.models.generateContent({
-                    model: 'gemini-2.5-flash-image',
-                    contents: { parts },
-                    config: {
-                        responseModalities: [Modality.IMAGE],
-                    },
-                });
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash-image',
+                contents: { parts },
+                config: {
+                    responseModalities: [Modality.IMAGE],
+                },
+            });
 
-                for (const part of response.candidates[0].content.parts) {
-                    if (part.inlineData) {
-                        const base64ImageBytes: string = part.inlineData.data;
-                        return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
-                    }
+            for (const part of response.candidates[0].content.parts) {
+                if (part.inlineData) {
+                    const base64ImageBytes: string = part.inlineData.data;
+                    return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
                 }
-                throw new Error(`La imagen ${i + 1} no pudo ser generada.`);
-            } catch (e) {
-                 if (e instanceof Error && (e.message.includes('API_KEY') || e.message.includes('not found') || e.message.includes('permission'))) {
-                    throw new Error('INVALID_API_KEY');
-                }
-                throw e; // Re-throw other errors
             }
+            throw new Error(`La imagen ${i + 1} no pudo ser generada.`);
+
         })();
         generationPromises.push(promise);
     }
