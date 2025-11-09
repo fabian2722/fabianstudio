@@ -54,9 +54,7 @@ export async function generateImages(
     numImages: number,
     baseImageUrls: string[]
 ): Promise<string[]> {
-    if (!process.env.API_KEY) {
-        throw new Error("API_KEY environment variable not set.");
-    }
+    // A new GoogleGenAI instance is created for each call to ensure the latest key is used.
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
     const generationPromises: Promise<string>[] = [];
@@ -82,22 +80,29 @@ export async function generateImages(
                     throw e;
                 }
             }
+            
+            try {
+                const response = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash-image',
+                    contents: { parts },
+                    config: {
+                        responseModalities: [Modality.IMAGE],
+                    },
+                });
 
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash-image',
-                contents: { parts },
-                config: {
-                    responseModalities: [Modality.IMAGE],
-                },
-            });
-
-            for (const part of response.candidates[0].content.parts) {
-                if (part.inlineData) {
-                    const base64ImageBytes: string = part.inlineData.data;
-                    return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
+                for (const part of response.candidates[0].content.parts) {
+                    if (part.inlineData) {
+                        const base64ImageBytes: string = part.inlineData.data;
+                        return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
+                    }
                 }
+                throw new Error(`La imagen ${i + 1} no pudo ser generada.`);
+            } catch (e) {
+                 if (e instanceof Error && (e.message.includes('API key not valid') || e.message.includes('Requested entity was not found'))) {
+                    throw new Error('API_KEY_INVALID');
+                }
+                throw e; // re-throw other errors
             }
-            throw new Error(`La imagen ${i + 1} no pudo ser generada.`);
         })();
         generationPromises.push(promise);
     }

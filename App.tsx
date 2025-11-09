@@ -1,6 +1,17 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { generateImages } from './services/geminiService';
-import { SparklesIcon, ChatIcon, PlusIcon, XIcon, LoaderIcon, PhotographIcon } from './components/icons';
+import { SparklesIcon, ChatIcon, PlusIcon, XIcon, LoaderIcon, PhotographIcon, DownloadIcon, ExpandIcon } from './components/icons';
+
+// FIX: Resolved a TypeScript error by defining and using a named interface 'AIStudio' for 'window.aistudio'. This ensures compatibility with other global declarations for this property.
+declare global {
+    interface AIStudio {
+        hasSelectedApiKey: () => Promise<boolean>;
+        openSelectKey: () => Promise<void>;
+    }
+    interface Window {
+        aistudio: AIStudio;
+    }
+}
 
 const MAX_IMAGES = 4;
 
@@ -16,23 +27,29 @@ const UrlInputBox: React.FC<UrlInputBoxProps> = ({ url, onUrlChange, onRemove, i
   const [preview, setPreview] = useState<{ status: 'idle' | 'loading' | 'loaded' | 'error'; src: string | null }>({ status: 'idle', src: null });
 
   const handleUrlValidation = useCallback(() => {
-    if (url && url.trim() !== '') {
-      try {
-        new URL(url);
-      } catch (_) {
-        setPreview({ status: 'error', src: null });
-        return;
-      }
-      
-      setPreview({ status: 'loading', src: null });
-      const img = new Image();
-      img.onload = () => setPreview({ status: 'loaded', src: url });
-      img.onerror = () => setPreview({ status: 'error', src: null });
-      img.src = url;
+    if (url && url.trim() !== '' && (url.startsWith('http') || url.startsWith('data:image'))) {
+        setPreview({ status: 'loading', src: null });
+
+        if(url.startsWith('data:image')) {
+            setPreview({ status: 'loaded', src: url });
+            return;
+        }
+
+        try {
+            new URL(url);
+            const img = new Image();
+            img.onload = () => setPreview({ status: 'loaded', src: url });
+            img.onerror = () => setPreview({ status: 'error', src: null });
+            // Use a proxy for cross-origin images
+            img.src = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+        } catch (_) {
+            setPreview({ status: 'error', src: null });
+        }
     } else {
-      setPreview({ status: 'idle', src: null });
+        setPreview({ status: 'idle', src: null });
     }
-  }, [url]);
+}, [url]);
+
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -88,6 +105,50 @@ const Spinner = () => (
     </div>
 );
 
+
+interface ImageModalProps {
+    imageUrl: string;
+    onClose: () => void;
+    onDownload: () => void;
+    onUseAsBase: () => void;
+}
+
+const ImageModal: React.FC<ImageModalProps> = ({ imageUrl, onClose, onDownload, onUseAsBase }) => {
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onClose]);
+
+    return (
+        <div 
+            className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
+            onClick={onClose}
+        >
+            <div 
+                className="relative bg-slate-800 rounded-lg shadow-2xl p-4 w-full max-w-3xl max-h-[90vh] flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <img src={imageUrl} alt="Vista previa de la imagen generada" className="w-full h-auto object-contain rounded-md flex-grow" style={{ maxHeight: 'calc(90vh - 120px)' }} />
+                <div className="flex-shrink-0 flex items-center justify-center gap-4 mt-4">
+                    <button onClick={onDownload} className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-2 px-4 rounded-lg transition-all">
+                        <DownloadIcon /> Descargar
+                    </button>
+                    <button onClick={onUseAsBase} className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg transition-all">
+                        <SparklesIcon /> Usar como Base
+                    </button>
+                </div>
+                 <button onClick={onClose} className="absolute top-3 right-3 text-slate-400 hover:text-white transition-colors">
+                    <XIcon className="w-6 h-6" />
+                </button>
+            </div>
+        </div>
+    );
+};
+
+
 const App: React.FC = () => {
   const [prompt, setPrompt] = useState<string>('');
   const [numImages, setNumImages] = useState<number>(4);
@@ -95,6 +156,35 @@ const App: React.FC = () => {
   const [generatedImages, setGeneratedImages] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [apiKeyStatus, setApiKeyStatus] = useState<'checking' | 'ready' | 'needed'>('checking');
+
+  useEffect(() => {
+    const checkApiKey = async () => {
+        try {
+            if (await window.aistudio.hasSelectedApiKey()) {
+                setApiKeyStatus('ready');
+            } else {
+                setApiKeyStatus('needed');
+            }
+        } catch (e) {
+            console.error("Failed to check API key status:", e);
+            setApiKeyStatus('needed');
+        }
+    };
+    checkApiKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+      try {
+          await window.aistudio.openSelectKey();
+          setApiKeyStatus('ready');
+          setError(null);
+      } catch (e) {
+          console.error("Failed to open select key dialog:", e);
+          setError("No se pudo abrir el diálogo de selección de clave API.");
+      }
+  };
 
   const handleUrlChange = (index: number, value: string) => {
     const newUrls = [...baseImageUrls];
@@ -112,6 +202,26 @@ const App: React.FC = () => {
     setBaseImageUrls(prev => prev.filter((_, index) => index !== indexToRemove));
   };
 
+  const handleDownloadImage = (imageUrl: string) => {
+      const link = document.createElement('a');
+      link.href = imageUrl;
+      link.download = `catan-studio-${Date.now()}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
+  const handleUseAsBase = (imageUrl: string) => {
+      if(baseImageUrls.length < MAX_IMAGES) {
+          setBaseImageUrls(prev => [...prev, imageUrl]);
+      } else {
+          const newUrls = [...baseImageUrls];
+          newUrls[MAX_IMAGES - 1] = imageUrl;
+          setBaseImageUrls(newUrls);
+      }
+      setSelectedImage(null);
+  };
+
   const handleGenerateClick = useCallback(async () => {
     if (!prompt.trim() || isLoading) return;
 
@@ -120,11 +230,16 @@ const App: React.FC = () => {
     setGeneratedImages([]);
 
     try {
-      const images = await generateImages(prompt, numImages, baseImageUrls);
+      const images = await generateImages(prompt, numImages, baseImageUrls.filter(url => url.trim() !== ''));
       setGeneratedImages(images);
     } catch (e) {
       if (e instanceof Error) {
-        setError(e.message);
+        if (e.message === 'API_KEY_INVALID') {
+            setError("La clave API seleccionada no es válida. Por favor, selecciona una nueva.");
+            setApiKeyStatus('needed');
+        } else {
+            setError(e.message);
+        }
       } else {
         setError('Ocurrió un error desconocido.');
       }
@@ -132,6 +247,41 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   }, [prompt, numImages, baseImageUrls, isLoading]);
+  
+  if (apiKeyStatus === 'checking') {
+    return (
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+            <p className="text-slate-400">Verificando la configuración...</p>
+        </div>
+    );
+  }
+
+  if (apiKeyStatus === 'needed') {
+      return (
+          <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 text-center">
+              <div className="absolute top-0 left-0 right-0 h-[40vh] bg-gradient-to-b from-cyan-500/20 to-transparent -z-0 pointer-events-none" />
+              <div className="relative z-10 max-w-md mx-auto bg-slate-800/50 border border-slate-700 rounded-2xl p-8 shadow-2xl">
+                  <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600 mb-4">
+                      Bienvenido a Catan Studio
+                  </h1>
+                  <p className="text-slate-400 mb-6">Para comenzar a generar imágenes, por favor selecciona una clave API de Google AI.</p>
+                  <button
+                      onClick={handleSelectKey}
+                      className="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105"
+                  >
+                      Seleccionar Clave API
+                  </button>
+                  <p className="text-xs text-slate-500 mt-4">
+                      Se te pedirá que elijas un proyecto de Google Cloud con la API de Gemini habilitada. 
+                      <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline ml-1">
+                          Más información sobre facturación.
+                      </a>
+                  </p>
+                  {error && <div className="mt-4 bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg text-sm">{error}</div>}
+              </div>
+          </div>
+      );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans p-4 sm:p-6 lg:p-8 relative overflow-hidden">
@@ -235,10 +385,18 @@ const App: React.FC = () => {
             {generatedImages.length > 0 && (
                 <div>
                     <h2 className="text-2xl font-semibold text-white mb-6 text-center">Tus Creaciones</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-4">
                         {generatedImages.map((src, index) => (
-                            <div key={index} className="aspect-square bg-slate-800 rounded-lg overflow-hidden group transition-transform duration-300 hover:scale-105 shadow-lg">
+                            <div key={index} className="relative aspect-square bg-slate-800 rounded-lg overflow-hidden group transition-transform duration-300 hover:scale-105 shadow-lg">
                                 <img src={src} alt={`Imagen generada ${index + 1}`} className="w-full h-full object-cover"/>
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                                    <button onClick={() => handleDownloadImage(src)} title="Descargar Imagen" className="p-3 bg-slate-900/50 rounded-full text-white hover:bg-cyan-500 transition-colors">
+                                        <DownloadIcon />
+                                    </button>
+                                     <button onClick={() => setSelectedImage(src)} title="Vista Previa" className="p-3 bg-slate-900/50 rounded-full text-white hover:bg-cyan-500 transition-colors">
+                                        <ExpandIcon />
+                                    </button>
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -250,6 +408,16 @@ const App: React.FC = () => {
           Fuentes de Gemini / Powered by Google Gemini
         </footer>
       </div>
+
+      {selectedImage && (
+        <ImageModal 
+            imageUrl={selectedImage}
+            onClose={() => setSelectedImage(null)}
+            onDownload={() => handleDownloadImage(selectedImage)}
+            onUseAsBase={() => handleUseAsBase(selectedImage)}
+        />
+      )}
+
       <button className="fixed bottom-6 right-6 bg-blue-600 text-white p-4 rounded-full shadow-lg hover:bg-blue-500 transition-transform transform hover:scale-110">
         <ChatIcon />
       </button>
