@@ -2,16 +2,8 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { generateImages } from './services/geminiService';
 import { SparklesIcon, ChatIcon, PlusIcon, XIcon, LoaderIcon, PhotographIcon, DownloadIcon, ExpandIcon } from './components/icons';
 
-// Fix: Inlined the type definition for `window.aistudio` to resolve a duplicate declaration error.
-// Define a global interface for window.aistudio to satisfy TypeScript
-declare global {
-  interface Window {
-    aistudio: {
-      hasSelectedApiKey: () => Promise<boolean>;
-      openSelectKey: () => Promise<void>;
-    };
-  }
-}
+// FIX: Removed subsequent property declaration for `window.aistudio` to resolve a type conflict.
+// A global type definition is assumed to exist.
 
 const MAX_IMAGES = 4;
 
@@ -147,7 +139,7 @@ const ImageModal: React.FC<ImageModalProps> = ({ imageUrl, onClose, onDownload, 
     );
 };
 
-const ApiKeySelectionScreen: React.FC<{ onSelectKey: () => void }> = ({ onSelectKey }) => (
+const ApiKeySelectionScreen: React.FC<{ onSelectKey: () => void, error?: string | null }> = ({ onSelectKey, error }) => (
     <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 text-center">
         <div className="max-w-md">
             <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600 mb-4">
@@ -156,6 +148,11 @@ const ApiKeySelectionScreen: React.FC<{ onSelectKey: () => void }> = ({ onSelect
             <p className="text-slate-400 mb-8">
                 Para comenzar a generar imágenes, por favor selecciona un proyecto con la API de Gemini habilitada.
             </p>
+             {error && (
+                <div className="mb-4 bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg text-sm">
+                    {error}
+                </div>
+            )}
             <button
                 onClick={onSelectKey}
                 className="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105"
@@ -183,18 +180,32 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [apiKeyReady, setApiKeyReady] = useState<boolean | null>(null);
+  const [apiKeyError, setApiKeyError] = useState<string | null>(null);
+
 
   useEffect(() => {
-    // Check for API key status on initial load
-    window.aistudio.hasSelectedApiKey().then(hasKey => {
-      setApiKeyReady(hasKey);
-    });
+    // Check for API key status on initial load, ensuring aistudio is available.
+    if (window.aistudio) {
+        window.aistudio.hasSelectedApiKey().then(hasKey => {
+            setApiKeyReady(hasKey);
+        });
+    } else {
+        // If the aistudio object isn't available, we can't proceed with key selection.
+        console.warn('aistudio environment not detected. API key selection will not be available.');
+        setApiKeyReady(false); // Default to showing the selection screen with a potential error.
+        setApiKeyError("El entorno de selección de clave de API no está disponible.");
+    }
   }, []);
 
   const handleSelectKey = async () => {
-    // Open the key selection dialog and optimistically set the app to ready
-    await window.aistudio.openSelectKey();
-    setApiKeyReady(true);
+    setApiKeyError(null);
+    if (window.aistudio) {
+        // Open the key selection dialog and optimistically set the app to ready
+        await window.aistudio.openSelectKey();
+        setApiKeyReady(true);
+    } else {
+        setApiKeyError("La selección de clave de API no está disponible en este entorno.");
+    }
   };
 
   const handleUrlChange = (index: number, value: string) => {
@@ -247,7 +258,7 @@ const App: React.FC = () => {
     } catch (e) {
       if (e instanceof Error) {
         if (e.message === 'INVALID_API_KEY') {
-            setError('La clave de API no es válida o no tiene los permisos necesarios. Por favor, selecciona una nueva.');
+            setApiKeyError('La clave de API no es válida o no tiene los permisos necesarios. Por favor, selecciona una nueva.');
             setApiKeyReady(false); // Reset to show the key selection screen
         } else {
             setError(e.message);
@@ -271,7 +282,7 @@ const App: React.FC = () => {
 
   // Render API key selection screen if not ready
   if (!apiKeyReady) {
-    return <ApiKeySelectionScreen onSelectKey={handleSelectKey} />;
+    return <ApiKeySelectionScreen onSelectKey={handleSelectKey} error={apiKeyError} />;
   }
 
   // Render the main application
