@@ -2,17 +2,6 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { generateImages } from './services/geminiService';
 import { SparklesIcon, ChatIcon, PlusIcon, XIcon, LoaderIcon, PhotographIcon, DownloadIcon, ExpandIcon } from './components/icons';
 
-// FIX: Resolved a TypeScript error by defining and using a named interface 'AIStudio' for 'window.aistudio'. This ensures compatibility with other global declarations for this property.
-declare global {
-    interface AIStudio {
-        hasSelectedApiKey: () => Promise<boolean>;
-        openSelectKey: () => Promise<void>;
-    }
-    interface Window {
-        aistudio: AIStudio;
-    }
-}
-
 const MAX_IMAGES = 4;
 
 interface UrlInputBoxProps {
@@ -157,34 +146,6 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [apiKeyStatus, setApiKeyStatus] = useState<'checking' | 'ready' | 'needed'>('checking');
-
-  useEffect(() => {
-    const checkApiKey = async () => {
-        try {
-            if (await window.aistudio.hasSelectedApiKey()) {
-                setApiKeyStatus('ready');
-            } else {
-                setApiKeyStatus('needed');
-            }
-        } catch (e) {
-            console.error("Failed to check API key status:", e);
-            setApiKeyStatus('needed');
-        }
-    };
-    checkApiKey();
-  }, []);
-
-  const handleSelectKey = async () => {
-      try {
-          await window.aistudio.openSelectKey();
-          setApiKeyStatus('ready');
-          setError(null);
-      } catch (e) {
-          console.error("Failed to open select key dialog:", e);
-          setError("No se pudo abrir el diálogo de selección de clave API.");
-      }
-  };
 
   const handleUrlChange = (index: number, value: string) => {
     const newUrls = [...baseImageUrls];
@@ -234,12 +195,7 @@ const App: React.FC = () => {
       setGeneratedImages(images);
     } catch (e) {
       if (e instanceof Error) {
-        if (e.message === 'API_KEY_INVALID') {
-            setError("La clave API seleccionada no es válida. Por favor, selecciona una nueva.");
-            setApiKeyStatus('needed');
-        } else {
-            setError(e.message);
-        }
+        setError(e.message);
       } else {
         setError('Ocurrió un error desconocido.');
       }
@@ -247,41 +203,6 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   }, [prompt, numImages, baseImageUrls, isLoading]);
-  
-  if (apiKeyStatus === 'checking') {
-    return (
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-            <p className="text-slate-400">Verificando la configuración...</p>
-        </div>
-    );
-  }
-
-  if (apiKeyStatus === 'needed') {
-      return (
-          <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 text-center">
-              <div className="absolute top-0 left-0 right-0 h-[40vh] bg-gradient-to-b from-cyan-500/20 to-transparent -z-0 pointer-events-none" />
-              <div className="relative z-10 max-w-md mx-auto bg-slate-800/50 border border-slate-700 rounded-2xl p-8 shadow-2xl">
-                  <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600 mb-4">
-                      Bienvenido a Catan Studio
-                  </h1>
-                  <p className="text-slate-400 mb-6">Para comenzar a generar imágenes, por favor selecciona una clave API de Google AI.</p>
-                  <button
-                      onClick={handleSelectKey}
-                      className="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105"
-                  >
-                      Seleccionar Clave API
-                  </button>
-                  <p className="text-xs text-slate-500 mt-4">
-                      Se te pedirá que elijas un proyecto de Google Cloud con la API de Gemini habilitada. 
-                      <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:underline ml-1">
-                          Más información sobre facturación.
-                      </a>
-                  </p>
-                  {error && <div className="mt-4 bg-red-900/50 border border-red-700 text-red-300 px-4 py-3 rounded-lg text-sm">{error}</div>}
-              </div>
-          </div>
-      );
-  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans p-4 sm:p-6 lg:p-8 relative overflow-hidden">
