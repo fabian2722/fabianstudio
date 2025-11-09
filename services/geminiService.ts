@@ -54,52 +54,59 @@ export async function generateImages(
     numImages: number,
     baseImageUrls: string[]
 ): Promise<string[]> {
-    // A new GoogleGenAI instance is created for each call to ensure the latest key is used.
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    try {
+        // A new GoogleGenAI instance is created for each call to ensure the latest key is used.
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-    const generationPromises: Promise<string>[] = [];
+        const generationPromises: Promise<string>[] = [];
 
-    for (let i = 0; i < numImages; i++) {
-        const promise = (async () => {
-            const parts: Part[] = [{ text: prompt }];
-            const baseUrl = baseImageUrls[i];
+        for (let i = 0; i < numImages; i++) {
+            const promise = (async () => {
+                const parts: Part[] = [{ text: prompt }];
+                const baseUrl = baseImageUrls[i];
 
-            if (baseUrl && baseUrl.trim() !== '') {
-                try {
-                    const { base64, mimeType } = await urlToBase64(baseUrl);
-                    parts.unshift({ // Add image part at the beginning for editing
-                        inlineData: {
-                            data: base64,
-                            mimeType: mimeType,
-                        },
-                    });
-                } catch (e) {
-                    if (e instanceof Error) {
-                        throw new Error(`Error con la Imagen Base ${i + 1}: ${e.message}`);
+                if (baseUrl && baseUrl.trim() !== '') {
+                    try {
+                        const { base64, mimeType } = await urlToBase64(baseUrl);
+                        parts.unshift({ // Add image part at the beginning for editing
+                            inlineData: {
+                                data: base64,
+                                mimeType: mimeType,
+                            },
+                        });
+                    } catch (e) {
+                        if (e instanceof Error) {
+                            throw new Error(`Error con la Imagen Base ${i + 1}: ${e.message}`);
+                        }
+                        throw e;
                     }
-                    throw e;
                 }
-            }
-            
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash-image',
-                contents: { parts },
-                config: {
-                    responseModalities: [Modality.IMAGE],
-                },
-            });
+                
+                const response = await ai.models.generateContent({
+                    model: 'gemini-2.5-flash-image',
+                    contents: { parts },
+                    config: {
+                        responseModalities: [Modality.IMAGE],
+                    },
+                });
 
-            for (const part of response.candidates[0].content.parts) {
-                if (part.inlineData) {
-                    const base64ImageBytes: string = part.inlineData.data;
-                    return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
+                for (const part of response.candidates[0].content.parts) {
+                    if (part.inlineData) {
+                        const base64ImageBytes: string = part.inlineData.data;
+                        return `data:${part.inlineData.mimeType};base64,${base64ImageBytes}`;
+                    }
                 }
-            }
-            throw new Error(`La imagen ${i + 1} no pudo ser generada.`);
+                throw new Error(`La imagen ${i + 1} no pudo ser generada.`);
 
-        })();
-        generationPromises.push(promise);
+            })();
+            generationPromises.push(promise);
+        }
+
+        return Promise.all(generationPromises);
+    } catch (e) {
+        if (e instanceof Error && (e.message?.includes('API key not valid') || e.message?.includes('API_KEY'))) {
+             throw new Error('INVALID_API_KEY');
+        }
+        throw e;
     }
-
-    return Promise.all(generationPromises);
 }

@@ -26,10 +26,17 @@ const UrlInputBox: React.FC<UrlInputBoxProps> = ({ url, onUrlChange, onRemove, i
 
         try {
             new URL(url); // Basic URL validation
+            // Using a proxy for preview to avoid CORS issues in the img tag for some servers
+            const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
             const img = new Image();
-            img.onload = () => setPreview({ status: 'loaded', src: url });
-            img.onerror = () => setPreview({ status: 'error', src: null });
-            img.src = url; // Directly try to load the URL, browser handles CORS for preview
+            img.onload = () => setPreview({ status: 'loaded', src: url }); // use original URL for preview if proxy succeeds
+            img.onerror = () => { // Fallback to direct URL if proxy fails
+                 const directImg = new Image();
+                 directImg.onload = () => setPreview({ status: 'loaded', src: url });
+                 directImg.onerror = () => setPreview({ status: 'error', src: null });
+                 directImg.src = url;
+            };
+            img.src = proxyUrl;
         } catch (_) {
             setPreview({ status: 'error', src: null });
         }
@@ -136,6 +143,33 @@ const ImageModal: React.FC<ImageModalProps> = ({ imageUrl, onClose, onDownload, 
     );
 };
 
+
+const ApiKeyScreen = ({ onKeySelect }: { onKeySelect: () => void }) => (
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-center p-4">
+        <div className="max-w-md">
+            <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600 mb-4">
+                Bienvenido a Catan Studio
+            </h1>
+            <p className="text-slate-400 mb-8">
+                Para comenzar a crear imágenes, por favor selecciona una clave de API de un proyecto que tenga la API de Gemini habilitada.
+            </p>
+            <button
+                onClick={onKeySelect}
+                className="bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105"
+            >
+                Seleccionar Clave de API
+            </button>
+            <p className="text-xs text-slate-500 mt-6">
+                Para más información sobre facturación, visita la{' '}
+                <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-cyan-400">
+                    documentación de Gemini
+                </a>.
+            </p>
+        </div>
+    </div>
+);
+
+
 const App: React.FC = () => {
   const [prompt, setPrompt] = useState<string>('');
   const [numImages, setNumImages] = useState<number>(4);
@@ -144,6 +178,36 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [hasApiKey, setHasApiKey] = useState<boolean>(false);
+  const [isCheckingApiKey, setIsCheckingApiKey] = useState<boolean>(true);
+
+
+  useEffect(() => {
+    const checkApiKey = async () => {
+        setIsCheckingApiKey(true);
+        if (typeof window.aistudio?.hasSelectedApiKey === 'function') {
+            const hasKey = await window.aistudio.hasSelectedApiKey();
+            setHasApiKey(hasKey);
+        } else {
+            // If the environment doesn't support aistudio, assume key is set elsewhere or show an error.
+            // For this context, we'll proceed as if there's no key, showing the selection screen.
+            setHasApiKey(false);
+        }
+        setIsCheckingApiKey(false);
+    };
+    checkApiKey();
+  }, []);
+
+  const handleSelectKey = async () => {
+      if (typeof window.aistudio?.openSelectKey === 'function') {
+        window.aistudio.openSelectKey();
+        // Assume the user selects a key. We'll re-check or just optimistically set to true.
+        // A failed API call will reset this if the key is invalid.
+        setHasApiKey(true);
+      } else {
+        setError("La selección de clave de API no está disponible en este entorno.");
+      }
+  };
   
   const handleUrlChange = (index: number, value: string) => {
     const newUrls = [...baseImageUrls];
@@ -194,7 +258,12 @@ const App: React.FC = () => {
       setGeneratedImages(images);
     } catch (e) {
       if (e instanceof Error) {
-        setError(e.message);
+        if (e.message === 'INVALID_API_KEY') {
+            setError('La clave de API no es válida o no tiene los permisos necesarios. Por favor, selecciona una nueva.');
+            setHasApiKey(false);
+        } else {
+            setError(e.message);
+        }
       } else {
         setError('Ocurrió un error desconocido.');
       }
@@ -202,6 +271,18 @@ const App: React.FC = () => {
       setIsLoading(false);
     }
   }, [prompt, numImages, baseImageUrls, isLoading]);
+  
+  if(isCheckingApiKey) {
+      return (
+          <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+              <LoaderIcon className="w-12 h-12 text-cyan-500 animate-spin" />
+          </div>
+      );
+  }
+
+  if (!hasApiKey) {
+      return <ApiKeyScreen onKeySelect={handleSelectKey} />;
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans p-4 sm:p-6 lg:p-8 relative overflow-hidden">
