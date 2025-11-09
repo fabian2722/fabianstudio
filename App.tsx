@@ -2,6 +2,17 @@ import React, { useState, useCallback, useEffect } from 'react';
 import { generateImages } from './services/geminiService';
 import { SparklesIcon, ChatIcon, PlusIcon, XIcon, LoaderIcon, PhotographIcon, DownloadIcon, ExpandIcon } from './components/icons';
 
+// Fix: Inlined the type definition for `window.aistudio` to resolve a duplicate declaration error.
+// Define a global interface for window.aistudio to satisfy TypeScript
+declare global {
+  interface Window {
+    aistudio: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}
+
 const MAX_IMAGES = 4;
 
 interface UrlInputBoxProps {
@@ -25,12 +36,11 @@ const UrlInputBox: React.FC<UrlInputBoxProps> = ({ url, onUrlChange, onRemove, i
         }
 
         try {
-            new URL(url);
+            new URL(url); // Basic URL validation
             const img = new Image();
             img.onload = () => setPreview({ status: 'loaded', src: url });
             img.onerror = () => setPreview({ status: 'error', src: null });
-            // Use a proxy for cross-origin images
-            img.src = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+            img.src = url; // Directly try to load the URL, browser handles CORS for preview
         } catch (_) {
             setPreview({ status: 'error', src: null });
         }
@@ -137,6 +147,32 @@ const ImageModal: React.FC<ImageModalProps> = ({ imageUrl, onClose, onDownload, 
     );
 };
 
+const ApiKeySelectionScreen: React.FC<{ onSelectKey: () => void }> = ({ onSelectKey }) => (
+    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 text-center">
+        <div className="max-w-md">
+            <h1 className="text-4xl sm:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600 mb-4">
+                Bienvenido a Catan Studio
+            </h1>
+            <p className="text-slate-400 mb-8">
+                Para comenzar a generar imágenes, por favor selecciona un proyecto con la API de Gemini habilitada.
+            </p>
+            <button
+                onClick={onSelectKey}
+                className="w-full flex items-center justify-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300 transform hover:scale-105"
+            >
+                <SparklesIcon className="w-5 h-5"/>
+                Seleccionar Clave de API
+            </button>
+            <p className="text-xs text-slate-500 mt-4">
+                Se pueden aplicar cargos. Para más información, consulta la{' '}
+                <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="underline hover:text-cyan-400">
+                    documentación de facturación
+                </a>.
+            </p>
+        </div>
+    </div>
+);
+
 
 const App: React.FC = () => {
   const [prompt, setPrompt] = useState<string>('');
@@ -146,6 +182,20 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [apiKeyReady, setApiKeyReady] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    // Check for API key status on initial load
+    window.aistudio.hasSelectedApiKey().then(hasKey => {
+      setApiKeyReady(hasKey);
+    });
+  }, []);
+
+  const handleSelectKey = async () => {
+    // Open the key selection dialog and optimistically set the app to ready
+    await window.aistudio.openSelectKey();
+    setApiKeyReady(true);
+  };
 
   const handleUrlChange = (index: number, value: string) => {
     const newUrls = [...baseImageUrls];
@@ -176,6 +226,7 @@ const App: React.FC = () => {
       if(baseImageUrls.length < MAX_IMAGES) {
           setBaseImageUrls(prev => [...prev, imageUrl]);
       } else {
+          // If all slots are full, replace the last one
           const newUrls = [...baseImageUrls];
           newUrls[MAX_IMAGES - 1] = imageUrl;
           setBaseImageUrls(newUrls);
@@ -195,7 +246,12 @@ const App: React.FC = () => {
       setGeneratedImages(images);
     } catch (e) {
       if (e instanceof Error) {
-        setError(e.message);
+        if (e.message === 'INVALID_API_KEY') {
+            setError('La clave de API no es válida o no tiene los permisos necesarios. Por favor, selecciona una nueva.');
+            setApiKeyReady(false); // Reset to show the key selection screen
+        } else {
+            setError(e.message);
+        }
       } else {
         setError('Ocurrió un error desconocido.');
       }
@@ -204,6 +260,21 @@ const App: React.FC = () => {
     }
   }, [prompt, numImages, baseImageUrls, isLoading]);
 
+  // Render loading state while checking for API key
+  if (apiKeyReady === null) {
+    return (
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+            <LoaderIcon className="w-12 h-12 text-cyan-500 animate-spin" />
+        </div>
+    );
+  }
+
+  // Render API key selection screen if not ready
+  if (!apiKeyReady) {
+    return <ApiKeySelectionScreen onSelectKey={handleSelectKey} />;
+  }
+
+  // Render the main application
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans p-4 sm:p-6 lg:p-8 relative overflow-hidden">
         <div className="absolute top-0 left-0 right-0 h-[40vh] bg-gradient-to-b from-cyan-500/20 to-transparent -z-0 pointer-events-none" />
@@ -310,11 +381,11 @@ const App: React.FC = () => {
                         {generatedImages.map((src, index) => (
                             <div key={index} className="relative aspect-square bg-slate-800 rounded-lg overflow-hidden group transition-transform duration-300 hover:scale-105 shadow-lg">
                                 <img src={src} alt={`Imagen generada ${index + 1}`} className="w-full h-full object-cover"/>
-                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                                    <button onClick={() => handleDownloadImage(src)} title="Descargar Imagen" className="p-3 bg-slate-900/50 rounded-full text-white hover:bg-cyan-500 transition-colors">
+                                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4 cursor-pointer" onClick={() => setSelectedImage(src)}>
+                                    <button onClick={(e) => { e.stopPropagation(); handleDownloadImage(src); }} title="Descargar Imagen" className="p-3 bg-slate-900/50 rounded-full text-white hover:bg-cyan-500 transition-colors">
                                         <DownloadIcon />
                                     </button>
-                                     <button onClick={() => setSelectedImage(src)} title="Vista Previa" className="p-3 bg-slate-900/50 rounded-full text-white hover:bg-cyan-500 transition-colors">
+                                     <button onClick={(e) => { e.stopPropagation(); setSelectedImage(src); }} title="Vista Previa" className="p-3 bg-slate-900/50 rounded-full text-white hover:bg-cyan-500 transition-colors">
                                         <ExpandIcon />
                                     </button>
                                 </div>
